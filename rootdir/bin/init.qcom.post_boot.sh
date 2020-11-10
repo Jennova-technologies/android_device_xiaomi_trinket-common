@@ -1,6 +1,6 @@
 #! /vendor/bin/sh
 
-# Copyright (c) 2012-2013, 2016-2019, The Linux Foundation. All rights reserved.
+# Copyright (c) 2012-2013, 2016-2020, The Linux Foundation. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -78,7 +78,12 @@ function configure_automotive_sku_parameters() {
     echo 1056000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq
     echo 1171200 > /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq
     echo 1785600 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
-
+    echo 902400000  > /sys/class/devfreq/soc\:qcom,cpu0-cpu-l3-lat/min_freq
+    echo 902400000  > /sys/class/devfreq/soc\:qcom,cpu4-cpu-l3-lat/min_freq
+    echo 902400000  > /sys/class/devfreq/soc\:qcom,cpu7-cpu-l3-lat/min_freq
+    echo 1612800000 > /sys/class/devfreq/soc\:qcom,cpu0-cpu-l3-lat/max_freq
+    echo 1612800000 > /sys/class/devfreq/soc\:qcom,cpu4-cpu-l3-lat/max_freq
+    echo 1612800000 > /sys/class/devfreq/soc\:qcom,cpu7-cpu-l3-lat/max_freq
 #read feature id from nvram
 reg_val=`cat /sys/devices/platform/soc/780130.qfprom/qfprom0/nvmem | od -An -t d4`
 feature_id=$(((reg_val >> 20) & 0xFF))
@@ -469,22 +474,48 @@ function sdm660_sched_interactive_dcvs() {
 
 function sdm660_sched_schedutil_dcvs() {
 
-    # configure governor settings for little cluster
-    echo "schedutil" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-    echo 0 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us
-    echo 0 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us
-    echo 1401600 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/hispeed_freq
+    if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 19 ]; then
+        # configure governor settings for little cluster
+        echo "schedutil" > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/down_rate_limit_us
+        echo 1401600 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/pl
+        echo 633600 > /sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq
+        echo 902400 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/rtg_boost_freq
 
-    # configure governor settings for big cluster
-    echo "schedutil" > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor
-    echo 0 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us
-    echo 0 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us
-    echo 1401600 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/hispeed_freq
+        # configure governor settings for big cluster
+        echo "schedutil" > /sys/devices/system/cpu/cpufreq/policy4/scaling_governor
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy4/schedutil/up_rate_limit_us
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy4/schedutil/down_rate_limit_us
+        echo 1401600 > /sys/devices/system/cpu/cpufreq/policy4/schedutil/hispeed_freq
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy4/schedutil/pl
+        echo 1113600 > /sys/devices/system/cpu/cpufreq/policy4/scaling_min_freq
+        echo 0 > /sys/devices/system/cpu/cpufreq/policy4/schedutil/rtg_boost_freq
+    else
+        # configure governor settings for little cluster
+        echo "schedutil" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        echo 0 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us
+        echo 0 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us
+        echo 1401600 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/hispeed_freq
+
+        # configure governor settings for big cluster
+        echo "schedutil" > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor
+        echo 0 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us
+        echo 0 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us
+        echo 1401600 > /sys/devices/system/cpu/cpu4/cpufreq/schedutil/hispeed_freq
+    fi
 
     echo 1 > /proc/sys/kernel/sched_walt_rotate_big_tasks
 
-    echo "0:1401600" > /sys/module/cpu_boost/parameters/input_boost_freq
-    echo 40 > /sys/module/cpu_boost/parameters/input_boost_ms
+    #if the kernel version >=4.19,set input_boost_freq accordingly
+    if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 19 ]; then
+        echo "0:1401600" > /sys/devices/system/cpu/cpu_boost/input_boost_freq
+        echo 40 > /sys/devices/system/cpu/cpu_boost/input_boost_ms
+    else
+        echo "0:1401600" > /sys/module/cpu_boost/parameters/input_boost_freq
+        echo 40 > /sys/module/cpu_boost/parameters/input_boost_ms
+    fi
 
     # sched_load_boost as -6 is equivalent to target load as 85. It is per cpu tunable.
     echo -6 >  /sys/devices/system/cpu/cpu0/sched_load_boost
@@ -519,23 +550,36 @@ function sdm660_sched_schedutil_dcvs() {
             echo 1600 > $cpubw/bw_hwmon/idle_mbps
         done
 
-        for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-        do
-            echo "mem_latency" > $memlat/governor
-            echo 10 > $memlat/polling_interval
-            echo 400 > $memlat/mem_latency/ratio_ceil
-        done
+        if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -le 14 ]; then
+            for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
+            do
+                echo "mem_latency" > $memlat/governor
+                echo 10 > $memlat/polling_interval
+                echo 400 > $memlat/mem_latency/ratio_ceil
+            done
 
-        for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-        do
-            echo "compute" > $latfloor/governor
-            echo 10 > $latfloor/polling_interval
-        done
-
+            for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
+            do
+                echo "compute" > $latfloor/governor
+                echo 10 > $latfloor/polling_interval
+            done
+        fi
     done
+
+    if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 19 ]; then
+        # memlat specific settings are moved to seperate file under
+        # device/target specific folder
+        setprop vendor.dcvs.prop 1
+    fi
+
 }
 
 target=`getprop ro.board.platform`
+
+KernelVersionStr=`cat /proc/sys/kernel/osrelease`
+KernelVersionS=${KernelVersionStr:2:2}
+KernelVersionA=${KernelVersionStr:0:1}
+KernelVersionB=${KernelVersionS%.*}
 
 function configure_zram_parameters() {
     MemTotalStr=`cat /proc/meminfo | grep MemTotal`
@@ -547,32 +591,24 @@ function configure_zram_parameters() {
     # For 512MB Go device, size = 384MB, set same for Non-Go.
     # For 1GB Go device, size = 768MB, set same for Non-Go.
     # For 2GB Go device, size = 1536MB, set same for Non-Go.
-    # For >2GB Non-Go devices, size = 50% of RAM size. Limit the size to 4GB.
-    # And enable lz4 zram compression for Go targets.
+    # For >2GB Non-Go devices, size = 4GB.
+    # And enable lz4 zram compression for all targets.
 
-    RamSizeGB=`echo "($MemTotal / 1048576 ) + 1" | bc`
+    let RamSizeGB="( $MemTotal / 1048576 ) + 1"
+    diskSizeUnit=M
     if [ $RamSizeGB -le 2 ]; then
-        zRamSizeBytes=`echo "$RamSizeGB * 1024 * 1024 * 1024 * 3 / 4" | bc`
-        zRamSizeMB=`echo "$RamSizeGB * 1024 * 3 / 4" | bc`
+        let zRamSizeMB="( $RamSizeGB * 1024 ) * 3 / 4"
     else
-        zRamSizeBytes=`echo "$RamSizeGB * 1024 * 1024 * 1024 / 2" | bc`
-        zRamSizeMB=`echo "$RamSizeGB * 1024 / 2" | bc`
+        let zRamSizeMB=2048
     fi
 
-    # use MB avoid 32 bit overflow
-    if [ $zRamSizeMB -gt 4096 ]; then
-        zRamSizeBytes=4294967296
-    fi
-
-    if [ "$low_ram" == "true" ]; then
-        echo lz4 > /sys/block/zram0/comp_algorithm
-    fi
+    echo lz4 > /sys/block/zram0/comp_algorithm
 
     if [ -f /sys/block/zram0/disksize ]; then
         if [ -f /sys/block/zram0/use_dedup ]; then
             echo 1 > /sys/block/zram0/use_dedup
         fi
-        echo $zRamSizeBytes > /sys/block/zram0/disksize
+        echo "$zRamSizeMB""$diskSizeUnit" > /sys/block/zram0/disksize
 
         # ZRAM may use more memory than it saves if SLAB_STORE_USER
         # debug option is enabled.
@@ -589,26 +625,14 @@ function configure_zram_parameters() {
 }
 
 function configure_read_ahead_kb_values() {
-    MemTotalStr=`cat /proc/meminfo | grep MemTotal`
-    MemTotal=${MemTotalStr:16:8}
-
     dmpts=$(ls /sys/block/*/queue/read_ahead_kb | grep -e dm -e mmc)
 
-    # Set 128 for <= 3GB &
-    # set 512 for >= 4GB targets.
-    if [ $MemTotal -le 3145728 ]; then
-        echo 128 > /sys/block/mmcblk0/bdi/read_ahead_kb
-        echo 128 > /sys/block/mmcblk0rpmb/bdi/read_ahead_kb
-        for dm in $dmpts; do
-            echo 128 > $dm
-        done
-    else
-        echo 512 > /sys/block/mmcblk0/bdi/read_ahead_kb
-        echo 512 > /sys/block/mmcblk0rpmb/bdi/read_ahead_kb
-        for dm in $dmpts; do
-            echo 512 > $dm
-        done
-    fi
+    # Set 128 for all targets.
+    echo 128 > /sys/block/mmcblk0/bdi/read_ahead_kb
+    echo 128 > /sys/block/mmcblk0rpmb/bdi/read_ahead_kb
+    for dm in $dmpts; do
+        echo 128 > $dm
+    done
 }
 
 function disable_core_ctl() {
@@ -723,18 +747,17 @@ else
         echo 53059 > /sys/module/lowmemorykiller/parameters/vmpressure_file_min
         fi
 
-        # Enable adaptive LMK for all targets &
-        # use Google default LMK series for all 64-bit targets >=2GB.
-        echo 1 > /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk
+        # Disable adaptive LMK for all targets
+        echo 0 > /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk
 
         # Enable oom_reaper
         if [ -f /sys/module/lowmemorykiller/parameters/oom_reaper ]; then
             echo 1 > /sys/module/lowmemorykiller/parameters/oom_reaper
         fi
 
-        if [ "$ProductName" != "bengal_32" ]; then
-            #bengal_32 has appcompaction enabled. So not needed
-            # Set PPR parametersi for other targets
+        if [[ "$ProductName" != "bengal"* ]]; then
+            #bengal has appcompaction enabled. So not needed
+            # Set PPR parameters for other targets
             if [ -f /sys/devices/soc0/soc_id ]; then
                 soc_id=`cat /sys/devices/soc0/soc_id`
             else
@@ -761,6 +784,16 @@ else
         fi
     fi
 
+    if [[ "$ProductName" == "bengal"* ]]; then
+        #Set PPR nomap parameters for bengal targets
+        echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim
+        echo 50 > /sys/module/process_reclaim/parameters/pressure_min
+        echo 70 > /sys/module/process_reclaim/parameters/pressure_max
+        echo 30 > /sys/module/process_reclaim/parameters/swap_opt_eff
+        echo 0 > /sys/module/process_reclaim/parameters/per_swap_size
+        echo 7680 > /sys/module/process_reclaim/parameters/tsk_nomap_swap_sz
+    fi
+
     # Set allocstall_threshold to 0 for all targets.
     # Set swappiness to 100 for all targets
     echo 0 > /sys/module/vmpressure/parameters/allocstall_threshold
@@ -770,7 +803,7 @@ else
     # wsf Range : 1..1000 So set to bare minimum value 1.
     echo 1 > /proc/sys/vm/watermark_scale_factor
 
-    #configure_zram_parameters
+    configure_zram_parameters
 
     configure_read_ahead_kb_values
 
@@ -2096,10 +2129,6 @@ case "$target" in
                 done
 
                 #if the kernel version >=4.9,use the schedutil governor
-                KernelVersionStr=`cat /proc/sys/kernel/osrelease`
-                KernelVersionS=${KernelVersionStr:2:2}
-                KernelVersionA=${KernelVersionStr:0:1}
-                KernelVersionB=${KernelVersionS%.*}
                 if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 9 ]; then
                     8953_sched_dcvs_eas
                 else
@@ -2382,10 +2411,6 @@ case "$target" in
                 # disable thermal core_control to update interactive gov settings
                 echo 0 > /sys/module/msm_thermal/core_control/enabled
 
-                KernelVersionStr=`cat /proc/sys/kernel/osrelease`
-                KernelVersionS=${KernelVersionStr:2:2}
-                KernelVersionA=${KernelVersionStr:0:1}
-                KernelVersionB=${KernelVersionS%.*}
                 if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 9 ]; then
                     8917_sched_dcvs_eas
                 else
@@ -2467,10 +2492,6 @@ case "$target" in
                 # disable thermal core_control to update interactive gov and core_ctl settings
                 echo 0 > /sys/module/msm_thermal/core_control/enabled
 
-                KernelVersionStr=`cat /proc/sys/kernel/osrelease`
-                KernelVersionS=${KernelVersionStr:2:2}
-                KernelVersionA=${KernelVersionStr:0:1}
-                KernelVersionB=${KernelVersionS%.*}
                 if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 9 ]; then
                     8937_sched_dcvs_eas
                 else
@@ -2705,12 +2726,14 @@ case "$target" in
             panel=${panel:2:4}
         fi
 
-        if [ $panel -gt 1080 ]; then
-            echo 2 > /proc/sys/kernel/sched_window_stats_policy
-            echo 5 > /proc/sys/kernel/sched_ravg_hist_size
-        else
-            echo 3 > /proc/sys/kernel/sched_window_stats_policy
-            echo 3 > /proc/sys/kernel/sched_ravg_hist_size
+        if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -le 14 ]; then
+            if [ $panel -gt 1080 ]; then
+                echo 2 > /proc/sys/kernel/sched_window_stats_policy
+                echo 5 > /proc/sys/kernel/sched_ravg_hist_size
+            else
+                echo 3 > /proc/sys/kernel/sched_window_stats_policy
+                echo 3 > /proc/sys/kernel/sched_ravg_hist_size
+            fi
         fi
         #Apply settings for sdm660, sdm636,sda636
         case "$soc_id" in
@@ -2734,10 +2757,6 @@ case "$target" in
             echo 0-3 > /dev/cpuset/system-background/cpus
 
             #if the kernel version >=4.14,use the schedutil governor
-            KernelVersionStr=`cat /proc/sys/kernel/osrelease`
-            KernelVersionS=${KernelVersionStr:2:2}
-            KernelVersionA=${KernelVersionStr:0:1}
-            KernelVersionB=${KernelVersionS%.*}
             if [ $KernelVersionA -ge 4 ] && [ $KernelVersionB -ge 14 ]; then
                 sdm660_sched_schedutil_dcvs
             else
@@ -3147,7 +3166,6 @@ case "$target" in
                 for cpubw in $device/*cpu-cpu-ddr-bw/devfreq/*cpu-cpu-ddr-bw
                 do
                     echo "bw_hwmon" > $cpubw/governor
-                    echo 50 > $cpubw/polling_interval
                     echo 762 > $cpubw/min_freq
                     if [ ${ddr_type:4:2} == $ddr_type4 ]; then
                         # LPDDR4
@@ -3167,23 +3185,15 @@ case "$target" in
                     echo 80 > $cpubw/bw_hwmon/down_thres
                     echo 0 > $cpubw/bw_hwmon/guard_band_mbps
                     echo 250 > $cpubw/bw_hwmon/up_scale
-                   echo 1600 > $cpubw/bw_hwmon/idle_mbps
-                done
-
-                for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-                do
-                    echo "mem_latency" > $memlat/governor
-                    echo 10 > $memlat/polling_interval
-                    echo 400 > $memlat/mem_latency/ratio_ceil
-                done
-
-                for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-                do
-                    echo "compute" > $latfloor/governor
-                    echo 10 > $latfloor/polling_interval
+                    echo 1600 > $cpubw/bw_hwmon/idle_mbps
+                    echo 50 > $cpubw/polling_interval
                 done
 
             done
+
+            # memlat specific settings are moved to seperate file under
+            # device/target specific folder
+            setprop vendor.dcvs.prop 1
 
             # colcoation v3 disabled
             echo 0 > /proc/sys/kernel/sched_min_task_util_for_boost
@@ -3286,7 +3296,6 @@ case "$target" in
           for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
           do
 	      echo "bw_hwmon" > $cpubw/governor
-	      echo 50 > $cpubw/polling_interval
 	      echo "2288 4577 7110 9155 12298 14236" > $cpubw/bw_hwmon/mbps_zones
 	      echo 4 > $cpubw/bw_hwmon/sample_ms
 	      echo 68 > $cpubw/bw_hwmon/io_percent
@@ -3296,12 +3305,12 @@ case "$target" in
 	      echo 0 > $cpubw/bw_hwmon/guard_band_mbps
 	      echo 250 > $cpubw/bw_hwmon/up_scale
 	      echo 1600 > $cpubw/bw_hwmon/idle_mbps
+              echo 50 > $cpubw/polling_interval
 	  done
 
 	  for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
 	  do
 	      echo "bw_hwmon" > $llccbw/governor
-	      echo 40 > $llccbw/polling_interval
 	      echo "1144 1720 2086 2929 3879 5931 6881" > $llccbw/bw_hwmon/mbps_zones
 	      echo 4 > $llccbw/bw_hwmon/sample_ms
 	      echo 68 > $llccbw/bw_hwmon/io_percent
@@ -3311,33 +3320,14 @@ case "$target" in
 	      echo 0 > $llccbw/bw_hwmon/guard_band_mbps
 	      echo 250 > $llccbw/bw_hwmon/up_scale
 	      echo 1600 > $llccbw/bw_hwmon/idle_mbps
+              echo 40 > $llccbw/polling_interval
 	  done
-
-	    #Enable mem_latency governor for L3, LLCC, and DDR scaling
-	  for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-	  do
-	      echo "mem_latency" > $memlat/governor
-	      echo 10 > $memlat/polling_interval
-	      echo 400 > $memlat/mem_latency/ratio_ceil
-          done
-
-          #Gold L3 ratio ceil
-          echo 4000 > /sys/class/devfreq/soc:qcom,cpu6-cpu-l3-lat/mem_latency/ratio_ceil
-
-          #Enable cdspl3 governor for L3 cdsp nodes
-          for l3cdsp in $device/*cdsp-cdsp-l3-lat/devfreq/*cdsp-cdsp-l3-lat
-          do
-              echo "cdspl3" > $l3cdsp/governor
-          done
-
-	  #Enable compute governor for gold latfloor
-	  for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-	  do
-	      echo "compute" > $latfloor/governor
-	      echo 10 > $latfloor/polling_interval
-	  done
-
       done
+
+      # memlat specific settings are moved to seperate file under
+      # device/target specific folder
+      setprop vendor.dcvs.prop 1
+
             # cpuset parameters
             echo 0-5 > /dev/cpuset/background/cpus
             echo 0-5 > /dev/cpuset/system-background/cpus
@@ -3407,7 +3397,6 @@ case "$target" in
                 for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
                 do
                     echo "bw_hwmon" > $cpubw/governor
-                    echo 50 > $cpubw/polling_interval
                     echo "2288 4577 7110 9155 12298 14236" > $cpubw/bw_hwmon/mbps_zones
                     echo 4 > $cpubw/bw_hwmon/sample_ms
                     echo 68 > $cpubw/bw_hwmon/io_percent
@@ -3417,12 +3406,12 @@ case "$target" in
                     echo 0 > $cpubw/bw_hwmon/guard_band_mbps
                     echo 250 > $cpubw/bw_hwmon/up_scale
                     echo 1600 > $cpubw/bw_hwmon/idle_mbps
+                    echo 50 > $cpubw/polling_interval
                 done
 
                 for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
                 do
                     echo "bw_hwmon" > $llccbw/governor
-                    echo 40 > $llccbw/polling_interval
                     echo "1144 1720 2086 2929 3879 5931 6881" > $llccbw/bw_hwmon/mbps_zones
                     echo 4 > $llccbw/bw_hwmon/sample_ms
                     echo 68 > $llccbw/bw_hwmon/io_percent
@@ -3432,13 +3421,13 @@ case "$target" in
                     echo 0 > $llccbw/bw_hwmon/guard_band_mbps
                     echo 250 > $llccbw/bw_hwmon/up_scale
                     echo 1600 > $llccbw/bw_hwmon/idle_mbps
+                    echo 40 > $llccbw/polling_interval
                 done
 
                 for npubw in $device/*npu-npu-ddr-bw/devfreq/*npu-npu-ddr-bw
                 do
                     echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
                     echo "bw_hwmon" > $npubw/governor
-                    echo 40 > $npubw/polling_interval
                     echo "1144 1720 2086 2929 3879 5931 6881" > $npubw/bw_hwmon/mbps_zones
                     echo 4 > $npubw/bw_hwmon/sample_ms
                     echo 80 > $npubw/bw_hwmon/io_percent
@@ -3448,34 +3437,14 @@ case "$target" in
                     echo 0 > $npubw/bw_hwmon/guard_band_mbps
                     echo 250 > $npubw/bw_hwmon/up_scale
                     echo 0 > $npubw/bw_hwmon/idle_mbps
+                    echo 40 > $npubw/polling_interval
                     echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
                 done
-
-                #Enable mem_latency governor for L3, LLCC, and DDR scaling
-                for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-                do
-                    echo "mem_latency" > $memlat/governor
-                    echo 10 > $memlat/polling_interval
-                    echo 400 > $memlat/mem_latency/ratio_ceil
-                done
-
-                #Gold L3 ratio ceil
-                echo 4000 > /sys/class/devfreq/soc:qcom,cpu6-cpu-l3-lat/mem_latency/ratio_ceil
-
-                #Enable cdspl3 governor for L3 cdsp nodes
-                for l3cdsp in $device/*cdsp-cdsp-l3-lat/devfreq/*cdsp-cdsp-l3-lat
-                do
-                    echo "cdspl3" > $l3cdsp/governor
-                done
-
-                #Enable compute governor for gold latfloor
-                for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-                do
-                    echo "compute" > $latfloor/governor
-                    echo 10 > $latfloor/polling_interval
-                done
-
             done
+
+            # memlat specific settings are moved to seperate file under
+            # device/target specific folder
+            setprop vendor.dcvs.prop 1
 
             # cpuset parameters
                 echo 0-5 > /dev/cpuset/background/cpus
@@ -3502,7 +3471,7 @@ case "$target" in
     fi
 
     case "$soc_id" in
-        "400" | "440" )
+        "400" | "440" | "476" )
         # Core control parameters on silver
         echo 0 0 0 0 1 1 > /sys/devices/system/cpu/cpu0/core_ctl/not_preferred
         echo 4 > /sys/devices/system/cpu/cpu0/core_ctl/min_cpus
@@ -3573,8 +3542,7 @@ case "$target" in
         # Set Memory parameters
         configure_memory_parameters
 
-        rev=`cat /sys/devices/soc0/revision`
-        if [ $rev == "2.0" ] || [ $rev == "2.0.2" ]; then
+        if [ `cat /sys/devices/soc0/revision` == "2.0" ]; then
              # r2.0 related changes
              echo "0:1075200" > /sys/devices/system/cpu/cpu_boost/input_boost_freq
              echo 610000 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/rtg_boost_freq
@@ -3593,7 +3561,6 @@ case "$target" in
             for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
             do
                 echo "bw_hwmon" > $cpubw/governor
-                echo 50 > $cpubw/polling_interval
                 echo "2288 4577 7110 9155 12298 14236 16265" > $cpubw/bw_hwmon/mbps_zones
                 echo 4 > $cpubw/bw_hwmon/sample_ms
                 echo 68 > $cpubw/bw_hwmon/io_percent
@@ -3603,12 +3570,12 @@ case "$target" in
                 echo 0 > $cpubw/bw_hwmon/guard_band_mbps
                 echo 250 > $cpubw/bw_hwmon/up_scale
                 echo 1600 > $cpubw/bw_hwmon/idle_mbps
+                echo 50 > $cpubw/polling_interval
             done
 
             for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
             do
                 echo "bw_hwmon" > $llccbw/governor
-                echo 50 > $llccbw/polling_interval
                 echo "1144 1720 2086 2929 3879 5931 6881 7980" > $llccbw/bw_hwmon/mbps_zones
                 echo 4 > $llccbw/bw_hwmon/sample_ms
                 echo 68 > $llccbw/bw_hwmon/io_percent
@@ -3618,13 +3585,13 @@ case "$target" in
                 echo 0 > $llccbw/bw_hwmon/guard_band_mbps
                 echo 250 > $llccbw/bw_hwmon/up_scale
                 echo 1600 > $llccbw/bw_hwmon/idle_mbps
+                echo 50 > $llccbw/polling_interval
             done
 
             for npubw in $device/*npu*-ddr-bw/devfreq/*npu*-ddr-bw
             do
                 echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
                 echo "bw_hwmon" > $npubw/governor
-                echo 40 > $npubw/polling_interval
                 echo "1144 1720 2086 2929 3879 5931 6881 7980" > $npubw/bw_hwmon/mbps_zones
                 echo 4 > $npubw/bw_hwmon/sample_ms
                 echo 80 > $npubw/bw_hwmon/io_percent
@@ -3634,14 +3601,14 @@ case "$target" in
                 echo 0 > $npubw/bw_hwmon/guard_band_mbps
                 echo 250 > $npubw/bw_hwmon/up_scale
                 echo 0 > $npubw/bw_hwmon/idle_mbps
+                echo 40 > $npubw/polling_interval
                 echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
             done
 
             for npullccbw in $device/*npu*-llcc-bw/devfreq/*npu*-llcc-bw
-        do
+            do
                 echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
-            echo "bw_hwmon" > $npullccbw/governor
-                echo 40 > $npullccbw/polling_interval
+                echo "bw_hwmon" > $npullccbw/governor
                 echo "2288 4577 7110 9155 12298 14236 16265" > $npullccbw/bw_hwmon/mbps_zones
                 echo 4 > $npullccbw/bw_hwmon/sample_ms
                 echo 100 > $npullccbw/bw_hwmon/io_percent
@@ -3650,50 +3617,14 @@ case "$target" in
                 echo 30 > $npullccbw/bw_hwmon/down_thres
                 echo 0 > $npullccbw/bw_hwmon/guard_band_mbps
                 echo 250 > $npullccbw/bw_hwmon/up_scale
+                echo 40 > $npullccbw/polling_interval
                 echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
-        done
-
-            #Enable mem_latency governor for L3, LLCC, and DDR scaling
-        for memlat in $device/*qcom,devfreq-l3/*cpu*-lat/devfreq/*cpu*-lat
-            do
-                echo "mem_latency" > $memlat/governor
-                echo 8 > $memlat/polling_interval
-                echo 400 > $memlat/mem_latency/ratio_ceil
-            done
-
-        #Enable cdspl3 governor for L3 cdsp nodes
-        for l3cdsp in $device/*qcom,devfreq-l3/*cdsp-l3-lat/devfreq/*cdsp-l3-lat
-        do
-                echo "cdspl3" > $l3cdsp/governor
-        done
-
-        #Enable mem_latency governor for LLCC and DDR scaling
-        for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-        do
-            echo "mem_latency" > $memlat/governor
-            echo 8 > $memlat/polling_interval
-            echo 400 > $memlat/mem_latency/ratio_ceil
-            done
-
-            #Gold L3 ratio ceil
-        for l3gold in $device/*qcom,devfreq-l3/*cpu6-cpu-l3-lat/devfreq/*cpu6-cpu-l3-lat
-            do
-                echo 4000 > $l3gold/mem_latency/ratio_ceil
-            done
-
-            #Prime L3 ratio ceil
-        for l3prime in $device/*qcom,devfreq-l3/*cpu7-cpu-l3-lat/devfreq/*cpu7-cpu-l3-lat
-            do
-                echo 4000 > $l3prime/mem_latency/ratio_ceil
-            done
-
-            #Enable compute governor for gold latfloor
-            for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-            do
-                echo "compute" > $latfloor/governor
-                echo 8 > $latfloor/polling_interval
             done
         done
+        # memlat specific settings are moved to seperate file under
+        # device/target specific folder
+        setprop vendor.dcvs.prop 0
+        setprop vendor.dcvs.prop 1
 
         # cpuset parameters
         echo 0-5 > /dev/cpuset/background/cpus
@@ -3730,6 +3661,7 @@ case "$target" in
         # default sched up and down migrate values are 95 and 85
         echo 65 > /proc/sys/kernel/sched_downmigrate
         echo 71 > /proc/sys/kernel/sched_upmigrate
+
         # default sched up and down migrate values are 100 and 95
         echo 85 > /proc/sys/kernel/sched_group_downmigrate
         echo 100 > /proc/sys/kernel/sched_group_upmigrate
@@ -3765,8 +3697,8 @@ case "$target" in
         # Enable conservative pl
         echo 1 > /proc/sys/kernel/sched_conservative_pl
 
-        echo "0:1248000" > /sys/module/cpu_boost/parameters/input_boost_freq
-        echo 120 > /sys/module/cpu_boost/parameters/input_boost_ms
+        echo "0:1248000" > /sys/devices/system/cpu/cpu_boost/input_boost_freq
+        echo 120 > /sys/devices/system/cpu/cpu_boost/input_boost_ms
 
         # Set Memory parameters
         configure_memory_parameters
@@ -3777,7 +3709,6 @@ case "$target" in
             for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
             do
                 echo "bw_hwmon" > $cpubw/governor
-                echo 50 > $cpubw/polling_interval
                 echo "2288 4577 7110 9155 12298 14236" > $cpubw/bw_hwmon/mbps_zones
                 echo 4 > $cpubw/bw_hwmon/sample_ms
                 echo 68 > $cpubw/bw_hwmon/io_percent
@@ -3787,12 +3718,12 @@ case "$target" in
                 echo 0 > $cpubw/bw_hwmon/guard_band_mbps
                 echo 250 > $cpubw/bw_hwmon/up_scale
                 echo 1600 > $cpubw/bw_hwmon/idle_mbps
+                echo 50 > $cpubw/polling_interval
             done
 
             for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
             do
                 echo "bw_hwmon" > $llccbw/governor
-                echo 40 > $llccbw/polling_interval
                 echo "1144 1720 2086 2929 3879 5931 6881 8137" > $llccbw/bw_hwmon/mbps_zones
                 echo 4 > $llccbw/bw_hwmon/sample_ms
                 echo 68 > $llccbw/bw_hwmon/io_percent
@@ -3802,13 +3733,13 @@ case "$target" in
                 echo 0 > $llccbw/bw_hwmon/guard_band_mbps
                 echo 250 > $llccbw/bw_hwmon/up_scale
                 echo 1600 > $llccbw/bw_hwmon/idle_mbps
+                echo 40 > $llccbw/polling_interval
             done
 
             for npubw in $device/*npu*-ddr-bw/devfreq/*npu*-ddr-bw
             do
                 echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
                 echo "bw_hwmon" > $npubw/governor
-                echo 40 > $npubw/polling_interval
                 echo "1144 1720 2086 2929 3879 5931 6881 7980" > $npubw/bw_hwmon/mbps_zones
                 echo 4 > $npubw/bw_hwmon/sample_ms
                 echo 80 > $npubw/bw_hwmon/io_percent
@@ -3818,6 +3749,7 @@ case "$target" in
                 echo 0 > $npubw/bw_hwmon/guard_band_mbps
                 echo 250 > $npubw/bw_hwmon/up_scale
                 echo 0 > $npubw/bw_hwmon/idle_mbps
+                echo 40 > $npubw/polling_interval
                 echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
             done
 
@@ -3836,43 +3768,10 @@ case "$target" in
                 echo 250 > $npullccbw/bw_hwmon/up_scale
                 echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
             done
-
-           #Enable mem_latency governor for L3 scaling
-            for memlat in $device/*qcom,devfreq-l3/*cpu*-lat/devfreq/*cpu*-lat
-            do
-                echo "mem_latency" > $memlat/governor
-                echo 8 > $memlat/polling_interval
-                echo 400 > $memlat/mem_latency/ratio_ceil
-            done
-
-            #Enable mem_latency governor for LLCC, and DDR scaling
-            for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-            do
-                echo "mem_latency" > $memlat/governor
-                echo 8 > $memlat/polling_interval
-                echo 400 > $memlat/mem_latency/ratio_ceil
-            done
-
-            #Enable cdspl3 governor for L3 cdsp nodes
-            for l3cdsp in $device/*qcom,devfreq-l3/*cdsp-l3-lat/devfreq/*cdsp-l3-lat
-            do
-                echo "powersave" > $l3cdsp/governor
-            done
-
-            #Gold L3 ratio ceil
-            for l3gold in $device/*qcom,devfreq-l3/*cpu6-cpu-l3-lat/devfreq/*cpu6-cpu-l3-lat
-            do
-                echo 4000 > $l3gold/mem_latency/ratio_ceil
-            done
-
-            #Enable compute governor for gold latfloor
-            for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-            do
-                echo "compute" > $latfloor/governor
-                echo 8 > $latfloor/polling_interval
-            done
-
         done
+        # memlat specific settings are moved to seperate file under
+        # device/target specific folder
+        setprop vendor.dcvs.prop 1
 
         # cpuset parameters
         echo 0-5 > /dev/cpuset/background/cpus
@@ -3886,7 +3785,6 @@ case "$target" in
       ;;
     esac
 esac
-
 
 case "$target" in
     "bengal")
@@ -3927,10 +3825,6 @@ case "$target" in
             echo 1305600 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/hispeed_freq
             echo 614400 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
             echo 0 > /sys/devices/system/cpu/cpu0/cpufreq/schedutil/rtg_boost_freq
-
-            # configure input boost settings
-            echo "0:1017600" > /sys/devices/system/cpu/cpu_boost/input_boost_freq
-            echo 80 > /sys/devices/system/cpu/cpu_boost/input_boost_ms
 
             # configure governor settings for big cluster
             echo "schedutil" > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor
@@ -3990,20 +3884,10 @@ case "$target" in
                    echo 1600 > $cpubw/bw_hwmon/idle_mbps
                 done
 
-                for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-                do
-                    echo "mem_latency" > $memlat/governor
-                    echo 10 > $memlat/polling_interval
-                    echo 400 > $memlat/mem_latency/ratio_ceil
-                done
-
-                for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-                do
-                    echo "compute" > $latfloor/governor
-                    echo 10 > $latfloor/polling_interval
-                done
-
             done
+            # memlat specific settings are moved to seperate file under
+            # device/target specific folder
+            setprop vendor.dcvs.prop 1
 
             # colcoation v3 disabled
             echo 0 > /proc/sys/kernel/sched_min_task_util_for_boost
@@ -4092,15 +3976,12 @@ case "$target" in
             done
 
             # Disable low power modes. Enable it after LPM stable
-            echo 1 > /sys/module/lpm_levels/parameters/sleep_disabled
+            echo 0 > /sys/module/lpm_levels/parameters/sleep_disabled
             ;;
         esac
 
     ;;
 esac
-
-
-
 
 
 #Apply settings for atoll
@@ -4147,9 +4028,6 @@ case "$target" in
     echo -6 >  /sys/devices/system/cpu/cpu7/sched_load_boost
     echo 85 > /sys/devices/system/cpu/cpu6/cpufreq/schedutil/hispeed_load
 
-    # Enable conservative pl
-    echo 1 > /proc/sys/kernel/sched_conservative_pl
-
     echo "0:1248000" > /sys/module/cpu_boost/parameters/input_boost_freq
     echo 40 > /sys/module/cpu_boost/parameters/input_boost_ms
 
@@ -4162,7 +4040,6 @@ case "$target" in
         for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
         do
             echo "bw_hwmon" > $cpubw/governor
-            echo 50 > $cpubw/polling_interval
             echo "2288 4577 7110 9155 12298 14236" > $cpubw/bw_hwmon/mbps_zones
             echo 4 > $cpubw/bw_hwmon/sample_ms
             echo 68 > $cpubw/bw_hwmon/io_percent
@@ -4172,12 +4049,12 @@ case "$target" in
             echo 0 > $cpubw/bw_hwmon/guard_band_mbps
             echo 250 > $cpubw/bw_hwmon/up_scale
             echo 1600 > $cpubw/bw_hwmon/idle_mbps
+            echo 50 > $cpubw/polling_interval
         done
 
         for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
         do
             echo "bw_hwmon" > $llccbw/governor
-            echo 40 > $llccbw/polling_interval
             echo "1144 1720 2086 2929 3879 5931 6881 8137" > $llccbw/bw_hwmon/mbps_zones
             echo 4 > $llccbw/bw_hwmon/sample_ms
             echo 68 > $llccbw/bw_hwmon/io_percent
@@ -4187,13 +4064,13 @@ case "$target" in
             echo 0 > $llccbw/bw_hwmon/guard_band_mbps
             echo 250 > $llccbw/bw_hwmon/up_scale
             echo 1600 > $llccbw/bw_hwmon/idle_mbps
+            echo 40 > $llccbw/polling_interval
         done
 
         for npubw in $device/*npu*-npu-ddr-bw/devfreq/*npu*-npu-ddr-bw
         do
             echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
             echo "bw_hwmon" > $npubw/governor
-            echo 40 > $npubw/polling_interval
             echo "1144 1720 2086 2929 3879 5931 6881 8137" > $npubw/bw_hwmon/mbps_zones
             echo 4 > $npubw/bw_hwmon/sample_ms
             echo 80 > $npubw/bw_hwmon/io_percent
@@ -4203,34 +4080,15 @@ case "$target" in
             echo 0 > $npubw/bw_hwmon/guard_band_mbps
             echo 250 > $npubw/bw_hwmon/up_scale
             echo 0 > $npubw/bw_hwmon/idle_mbps
+            echo 40 > $npubw/polling_interval
             echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
         done
 
-        #Enable mem_latency governor for L3, LLCC, and DDR scaling
-        for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-        do
-            echo "mem_latency" > $memlat/governor
-            echo 10 > $memlat/polling_interval
-            echo 400 > $memlat/mem_latency/ratio_ceil
-        done
-
-        #Enable cdspl3 governor for L3 cdsp nodes
-        for l3cdsp in $device/*cdsp-cdsp-l3-lat/devfreq/*cdsp-cdsp-l3-lat
-        do
-            echo "cdspl3" > $l3cdsp/governor
-        done
-
-        #Gold L3 ratio ceil
-        echo 4000 > /sys/class/devfreq/soc:qcom,cpu6-cpu-l3-lat/mem_latency/ratio_ceil
-
-        #Enable compute governor for gold latfloor
-        for latfloor in $device/*cpu*-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-        do
-            echo "compute" > $latfloor/governor
-            echo 10 > $latfloor/polling_interval
-        done
-
     done
+
+    # memlat specific settings are moved to seperate file under
+    # device/target specific folder
+    setprop vendor.dcvs.prop 1
 
     # cpuset parameters
     echo 0-5 > /dev/cpuset/background/cpus
@@ -4286,7 +4144,6 @@ case "$target" in
             esac
 
       # Core control parameters on silver
-      echo 0 0 0 0 1 1 > /sys/devices/system/cpu/cpu0/core_ctl/not_preferred
       echo 4 > /sys/devices/system/cpu/cpu0/core_ctl/min_cpus
       echo 60 > /sys/devices/system/cpu/cpu0/core_ctl/busy_up_thres
       echo 40 > /sys/devices/system/cpu/cpu0/core_ctl/busy_down_thres
@@ -5010,7 +4867,6 @@ case "$target" in
 	    for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
 	    do
 		echo "bw_hwmon" > $cpubw/governor
-		echo 40 > $cpubw/polling_interval
 		echo "2288 4577 7110 9155 12298 14236 15258" > $cpubw/bw_hwmon/mbps_zones
 		echo 4 > $cpubw/bw_hwmon/sample_ms
 		echo 50 > $cpubw/bw_hwmon/io_percent
@@ -5021,12 +4877,12 @@ case "$target" in
 		echo 250 > $cpubw/bw_hwmon/up_scale
 		echo 1600 > $cpubw/bw_hwmon/idle_mbps
 		echo 14236 > $cpubw/max_freq
+                echo 40 > $cpubw/polling_interval
 	    done
 
 	    for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
 	    do
 		echo "bw_hwmon" > $llccbw/governor
-		echo 40 > $llccbw/polling_interval
 		echo "1720 2929 3879 5931 6881 7980" > $llccbw/bw_hwmon/mbps_zones
 		echo 4 > $llccbw/bw_hwmon/sample_ms
 		echo 80 > $llccbw/bw_hwmon/io_percent
@@ -5037,13 +4893,13 @@ case "$target" in
 		echo 250 > $llccbw/bw_hwmon/up_scale
 		echo 1600 > $llccbw/bw_hwmon/idle_mbps
 		echo 6881 > $llccbw/max_freq
+                echo 40 > $llccbw/polling_interval
 	    done
 
 	    for npubw in $device/*npu-npu-ddr-bw/devfreq/*npu-npu-ddr-bw
 	    do
 		echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
 		echo "bw_hwmon" > $npubw/governor
-		echo 40 > $npubw/polling_interval
 		echo "1720 2929 3879 5931 6881 7980" > $npubw/bw_hwmon/mbps_zones
 		echo 4 > $npubw/bw_hwmon/sample_ms
 		echo 80 > $npubw/bw_hwmon/io_percent
@@ -5053,42 +4909,14 @@ case "$target" in
 		echo 0 > $npubw/bw_hwmon/guard_band_mbps
 		echo 250 > $npubw/bw_hwmon/up_scale
 		echo 0 > $npubw/bw_hwmon/idle_mbps
+                echo 40 > $npubw/polling_interval
 		echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
 	    done
-
-	    #Enable mem_latency governor for L3, LLCC, and DDR scaling
-	    for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-	    do
-		echo "mem_latency" > $memlat/governor
-		echo 10 > $memlat/polling_interval
-		echo 400 > $memlat/mem_latency/ratio_ceil
-	    done
-
-	    #Enable userspace governor for L3 cdsp nodes
-	    for l3cdsp in $device/*cdsp-cdsp-l3-lat/devfreq/*cdsp-cdsp-l3-lat
-	    do
-		echo "cdspl3" > $l3cdsp/governor
-	    done
-
-	    #Enable compute governor for gold latfloor
-	    for latfloor in $device/*cpu-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-	    do
-		echo "compute" > $latfloor/governor
-		echo 10 > $latfloor/polling_interval
-	    done
-
-	    #Gold L3 ratio ceil
-	    for l3gold in $device/*cpu4-cpu-l3-lat/devfreq/*cpu4-cpu-l3-lat
-	    do
-		echo 4000 > $l3gold/mem_latency/ratio_ceil
-	    done
-
-	    #Prime L3 ratio ceil
-	    for l3prime in $device/*cpu7-cpu-l3-lat/devfreq/*cpu7-cpu-l3-lat
-	    do
-		echo 20000 > $l3prime/mem_latency/ratio_ceil
-	    done
 	done
+
+    # memlat specific settings are moved to seperate file under
+    # device/target specific folder
+    setprop vendor.dcvs.prop 1
 
     if [ -f /sys/devices/soc0/hw_platform ]; then
         hw_platform=`cat /sys/devices/soc0/hw_platform`
@@ -5104,7 +4932,7 @@ case "$target" in
         "MTP" | "Surf" | "RCM" )
             # Start Host based Touch processing
             case "$platform_subtype_id" in
-                "0" | "1" | "2" | "3" | "4" | "5")
+                "0" | "1" | "2" | "3" | "4")
                     start_hbtp
                     ;;
             esac
@@ -5334,6 +5162,10 @@ case "$target" in
         echo 1171200 > /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq
         echo 1171200 > /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq
         echo 1171200 > /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq
+	echo 940800000  > /sys/class/devfreq/soc\:qcom,cpu0-cpu-l3-lat/min_freq
+	echo 940800000  > /sys/class/devfreq/soc\:qcom,cpu4-cpu-l3-lat/min_freq
+	echo 1651200000 > /sys/class/devfreq/soc\:qcom,cpu0-cpu-l3-lat/max_freq
+	echo 1651200000 > /sys/class/devfreq/soc\:qcom,cpu4-cpu-l3-lat/max_freq
         #setting min gpu freq to 392  MHz
         echo 4 > /sys/class/kgsl/kgsl-3d0/min_pwrlevel
         if [ $feature_id == 0 ]; then
@@ -5409,7 +5241,7 @@ case "$target" in
 	echo "schedutil" > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
 	echo 0 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/down_rate_limit_us
 	echo 0 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us
-        if [ $rev == "2.0" ] || [ $rev == "2.1"]; then
+        if [ $rev == "2.0" ] || [ $rev == "2.1" ]; then
 		echo 1248000 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq
 	else
 		echo 1228800 > /sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq
@@ -5432,7 +5264,7 @@ case "$target" in
 	echo "schedutil" > /sys/devices/system/cpu/cpufreq/policy7/scaling_governor
 	echo 0 > /sys/devices/system/cpu/cpufreq/policy7/schedutil/down_rate_limit_us
 	echo 0 > /sys/devices/system/cpu/cpufreq/policy7/schedutil/up_rate_limit_us
-        if [ $rev == "2.0" ] || [ $rev == "2.1"]; then
+        if [ $rev == "2.0" ] || [ $rev == "2.1" ]; then
 		echo 1632000 > /sys/devices/system/cpu/cpufreq/policy7/schedutil/hispeed_freq
 	else
 		echo 1612800 > /sys/devices/system/cpu/cpufreq/policy7/schedutil/hispeed_freq
@@ -5445,7 +5277,6 @@ case "$target" in
 	    for cpubw in $device/*cpu-cpu-llcc-bw/devfreq/*cpu-cpu-llcc-bw
 	    do
 		echo "bw_hwmon" > $cpubw/governor
-		echo 40 > $cpubw/polling_interval
 		echo "4577 7110 9155 12298 14236 15258" > $cpubw/bw_hwmon/mbps_zones
 		echo 4 > $cpubw/bw_hwmon/sample_ms
 		echo 50 > $cpubw/bw_hwmon/io_percent
@@ -5456,12 +5287,12 @@ case "$target" in
 		echo 250 > $cpubw/bw_hwmon/up_scale
 		echo 1600 > $cpubw/bw_hwmon/idle_mbps
 		echo 14236 > $cpubw/max_freq
+		echo 40 > $cpubw/polling_interval
 	    done
 
 	    for llccbw in $device/*cpu-llcc-ddr-bw/devfreq/*cpu-llcc-ddr-bw
 	    do
 		echo "bw_hwmon" > $llccbw/governor
-		echo 40 > $llccbw/polling_interval
 		if [ ${ddr_type:4:2} == $ddr_type4 ]; then
 			echo "1720 2086 2929 3879 5161 5931 6881 7980" > $llccbw/bw_hwmon/mbps_zones
 		elif [ ${ddr_type:4:2} == $ddr_type5 ]; then
@@ -5476,13 +5307,13 @@ case "$target" in
 		echo 250 > $llccbw/bw_hwmon/up_scale
 		echo 1600 > $llccbw/bw_hwmon/idle_mbps
 		echo 6881 > $llccbw/max_freq
+		echo 40 > $llccbw/polling_interval
 	    done
 
 	    for npubw in $device/*npu*-ddr-bw/devfreq/*npu*-ddr-bw
 	    do
 		echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
 		echo "bw_hwmon" > $npubw/governor
-		echo 40 > $npubw/polling_interval
 		if [ ${ddr_type:4:2} == $ddr_type4 ]; then
 			echo "1720 2086 2929 3879 5931 6881 7980" > $npubw/bw_hwmon/mbps_zones
 		elif [ ${ddr_type:4:2} == $ddr_type5 ]; then
@@ -5496,6 +5327,7 @@ case "$target" in
 		echo 0 > $npubw/bw_hwmon/guard_band_mbps
 		echo 250 > $npubw/bw_hwmon/up_scale
 		echo 1600 > $npubw/bw_hwmon/idle_mbps
+		echo 40 > $npubw/polling_interval
 		echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
 	    done
 
@@ -5503,7 +5335,6 @@ case "$target" in
 	    do
 		echo 1 > /sys/devices/virtual/npu/msm_npu/pwr
 		echo "bw_hwmon" > $npullccbw/governor
-		echo 40 > $npullccbw/polling_interval
 		echo "4577 7110 9155 12298 14236 15258" > $npullccbw/bw_hwmon/mbps_zones
 		echo 4 > $npullccbw/bw_hwmon/sample_ms
 		echo 160 > $npullccbw/bw_hwmon/io_percent
@@ -5513,57 +5344,14 @@ case "$target" in
 		echo 0 > $npullccbw/bw_hwmon/guard_band_mbps
 		echo 250 > $npullccbw/bw_hwmon/up_scale
 		echo 1600 > $npullccbw/bw_hwmon/idle_mbps
+		echo 40 > $npullccbw/polling_interval
 		echo 0 > /sys/devices/virtual/npu/msm_npu/pwr
 	    done
-	    #Enable mem_latency governor for L3 scaling
-	    for memlat in $device/*qcom,devfreq-l3/*cpu*-lat/devfreq/*cpu*-lat
-	    do
-		echo "mem_latency" > $memlat/governor
-		echo 8 > $memlat/polling_interval
-		echo 400 > $memlat/mem_latency/ratio_ceil
-	    done
-
-	    #Enable cdspl3 governor for L3 cdsp nodes
-	    for l3cdsp in $device/*qcom,devfreq-l3/*cdsp-l3-lat/devfreq/*cdsp-l3-lat
-	    do
-                echo "cdspl3" > $l3cdsp/governor
-	    done
-
-	    #Enable mem_latency governor for LLCC and DDR scaling
-	    for memlat in $device/*cpu*-lat/devfreq/*cpu*-lat
-	    do
-		echo "mem_latency" > $memlat/governor
-		echo 8 > $memlat/polling_interval
-		echo 400 > $memlat/mem_latency/ratio_ceil
-	    done
-
-	    #Enable compute governor for gold latfloor
-	    for latfloor in $device/*cpu-ddr-latfloor*/devfreq/*cpu-ddr-latfloor*
-	    do
-		echo "compute" > $latfloor/governor
-		echo 8 > $latfloor/polling_interval
-	    done
-
-	    #Gold L3 ratio ceil
-	    for l3gold in $device/*qcom,devfreq-l3/*cpu4-cpu-l3-lat/devfreq/*cpu4-cpu-l3-lat
-	    do
-		echo 4000 > $l3gold/mem_latency/ratio_ceil
-	    done
-
-	    #Prime L3 ratio ceil
-	    for l3prime in $device/*qcom,devfreq-l3/*cpu7-cpu-l3-lat/devfreq/*cpu7-cpu-l3-lat
-	    do
-		echo 20000 > $l3prime/mem_latency/ratio_ceil
-	    done
-
-	    #Enable mem_latency governor for qoslat
-	    for qoslat in $device/*qoslat/devfreq/*qoslat
-	    do
-		echo "mem_latency" > $qoslat/governor
-		echo 10 > $qoslat/polling_interval
-		echo 50 > $qoslat/mem_latency/ratio_ceil
-	    done
 	done
+        # memlat specific settings are moved to seperate file under
+        # device/target specific folder
+        setprop vendor.dcvs.prop 0
+	setprop vendor.dcvs.prop 1
     echo N > /sys/module/lpm_levels/parameters/sleep_disabled
     configure_memory_parameters
     ;;
@@ -5864,7 +5652,7 @@ case "$target" in
         start mpdecision
         echo 512 > /sys/block/mmcblk0/bdi/read_ahead_kb
     ;;
-    "msm8909" | "msm8916" | "msm8937" | "msm8952" | "msm8953" | "msm8994" | "msm8992" | "msm8996" | "msm8998" | "sdm660" | "apq8098_latv" | "sdm845" | "sdm710" | "qcs605" |"msmnile" | "sdmshrike" |"msmsteppe" | "sm6150" | "kona" | "lito" | "trinket" | "atoll" | "bengal" )
+    "msm8909" | "msm8916" | "msm8937" | "msm8952" | "msm8953" | "msm8994" | "msm8992" | "msm8996" | "msm8998" | "sdm660" | "apq8098_latv" | "sdm845" | "sdm710" | "msmnile" | "msmsteppe" | "sm6150" | "kona" | "lito" | "trinket" | "atoll" | "bengal" | "sdmshrike")
         setprop vendor.post_boot.parsed 1
     ;;
     "apq8084")
@@ -5940,7 +5728,6 @@ case "$target" in
         echo 5120 > /proc/sys/vm/min_free_kbytes
      ;;
 esac
-
 # Let kernel know our image version/variant/crm_version
 if [ -f /sys/devices/soc0/select_image ]; then
     image_version="10:"
@@ -5958,7 +5745,7 @@ if [ -f /sys/devices/soc0/select_image ]; then
 fi
 
 # Change console log level as per console config property
-console_config=`getprop persist.console.silent.config`
+console_config=`getprop persist.vendor.console.silent.config`
 case "$console_config" in
     "1")
         echo "Enable console config to $console_config"
