@@ -175,7 +175,7 @@
             - config_screenBrightnessBacklight must be defined
          This array should have size one greater than the size of the config_autoBrightnessLevels
          array. The brightness values must be non-negative and non-decreasing. This must be
-         overridden in platform specific overlays -->
+         overridden in platform specific overlays 
     <integer-array name="config_autoBrightnessDisplayValuesNits">
         <item>4</item>
         <item>5</item>
@@ -235,12 +235,12 @@
         <item>434</item>
         <item>445</item>
         <item>445</item>
-    </integer-array>
+    </integer-array> -->
 
     <!-- Array of output values for LCD backlight corresponding to the LUX values
          in the config_autoBrightnessLevels array.  This array should have size one greater
          than the size of the config_autoBrightnessLevels array.
-         This must be overridden in platform specific overlays -->
+         This must be overridden in platform specific overlays
     <integer-array name="config_autoBrightnessLcdBacklightValues">
         <item>2</item>
         <item>4</item>
@@ -300,7 +300,7 @@
         <item>221</item>
         <item>226</item>
         <item>255</item>
-    </integer-array>
+    </integer-array> -->
 
     <!-- Array of light sensor LUX values to define our levels for auto backlight brightness support.
          The N entries of this array define N  1 zones as follows:
@@ -311,7 +311,7 @@
          Zone N:        array[N - 1] <= LUX < array[N]
          Zone N + 1     array[N] <= LUX < infinity
 
-         Must be overridden in platform specific overlays -->
+         Must be overridden in platform specific overlays 
     <integer-array name="config_autoBrightnessLevels">
         <item>1</item>
         <item>2</item>
@@ -370,7 +370,7 @@
         <item>3500</item>
         <item>4000</item>
         <item>4500</item>
-    </integer-array>
+    </integer-array> -->
 
     <!-- Screen brightness used to dim the screen when the user activity
          timeout expires.  May be less than the minimum allowed brightness setting
